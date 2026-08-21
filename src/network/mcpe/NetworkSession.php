@@ -80,12 +80,14 @@ use pocketmine\network\mcpe\protocol\serializer\PacketBatch;
 use pocketmine\network\mcpe\protocol\ServerboundPacket;
 use pocketmine\network\mcpe\protocol\ServerToClientHandshakePacket;
 use pocketmine\network\mcpe\protocol\SetDifficultyPacket;
+use pocketmine\network\mcpe\protocol\PlayerSkinPacket;
 use pocketmine\network\mcpe\protocol\SetPlayerGameTypePacket;
 use pocketmine\network\mcpe\protocol\SetSpawnPositionPacket;
 use pocketmine\network\mcpe\protocol\SetTimePacket;
 use pocketmine\network\mcpe\protocol\SetTitlePacket;
 use pocketmine\network\mcpe\protocol\TextPacket;
 use pocketmine\network\mcpe\protocol\ToastRequestPacket;
+use pocketmine\network\mcpe\protocol\TrimDataPacket;
 use pocketmine\network\mcpe\protocol\TransferPacket;
 use pocketmine\network\mcpe\protocol\types\AbilitiesData;
 use pocketmine\network\mcpe\protocol\types\AbilitiesLayer;
@@ -454,12 +456,13 @@ class NetworkSession{
 						$this->logger->debug("Unknown packet: " . base64_encode($buffer));
 						throw new PacketHandlingException("Unknown packet received");
 					}
-					try{
-						$this->handleDataPacket($packet, $buffer);
-					}catch(PacketHandlingException $e){
-						$this->unhandledPacketDebug($packet, $buffer, "Packet processing error");
-						throw PacketHandlingException::wrap($e, "Error processing " . $packet->getName());
-					}catch(FilterNoisyPacketException){
+			try{
+				$this->handleDataPacket($packet, $buffer);
+			}catch(PacketHandlingException $e){
+				$this->logger->warning("PACKET ERROR: " . $packet->getName() . " - " . $e->getMessage());
+				$this->unhandledPacketDebug($packet, $buffer, "Packet processing error");
+				throw PacketHandlingException::wrap($e, "Error processing " . $packet->getName());
+			}catch(FilterNoisyPacketException){
 						$this->noisyPacketBuffer = $buffer;
 					}
 					if(!$this->isConnected()){
@@ -504,6 +507,9 @@ class NetworkSession{
 			if($this->handlerActions !== null && isset($this->handlerActions[$packet::class])){
 				$handlerAction = $this->handlerActions[$packet::class];
 			}
+			if($packet instanceof \pocketmine\network\mcpe\protocol\SetLocalPlayerAsInitializedPacket){
+				$this->logger->debug("DEBUG: SetLocalPlayerAsInitialized handlerAction=" . ($handlerAction === PacketHandlerAction::HANDLED ? "HANDLED" : "NOT_HANDLED") . " handler=" . ($this->handler !== null ? get_class($this->handler) : "null"));
+			}
 			if(DataPacketDecodeEvent::hasHandlers()){
 				$ev = new DataPacketDecodeEvent($this, $packet->pid(), $buffer);
 				$cancel = $handlerAction !== PacketHandlerAction::HANDLED;
@@ -523,6 +529,8 @@ class NetworkSession{
 			if($handlerAction !== PacketHandlerAction::HANDLED){
 				if($handlerAction === PacketHandlerAction::DISCARD_WITH_DEBUG){
 					$this->unhandledPacketDebug($packet, $buffer, "Discarded without decoding");
+				}elseif($handlerAction === PacketHandlerAction::DISCARD_SILENT){
+					$this->logger->debug("SILENTLY DISCARDED: " . $packet->getName());
 				}
 				return;
 			}
@@ -554,9 +562,21 @@ class NetworkSession{
 			$handlerTimings = Timings::getHandleDataPacketTimings($packet);
 			$handlerTimings->startTiming();
 			try{
+				if($packet instanceof \pocketmine\network\mcpe\protocol\SetLocalPlayerAsInitializedPacket){
+					$this->logger->debug(">>> HANDLING SetLocalPlayerAsInitialized, handler=" . ($this->handler !== null ? get_class($this->handler) : "null"));
+				}
+				if($this->handler !== null && $this->handler instanceof \pocketmine\network\mcpe\handler\SpawnResponsePacketHandler){
+					$this->logger->debug(">>> SPAWN HANDLER RECEIVED: " . $packet->getName() . " (pid=" . $packet->pid() . ")");
+				}
 				if($this->handler === null || !$packet->handle($this->handler)){
+					if($packet instanceof \pocketmine\network\mcpe\protocol\SetLocalPlayerAsInitializedPacket){
+						$this->logger->debug(">>> SetLocalPlayerAsInitialized REJECTED by handler");
+					}
 					$this->unhandledPacketDebug($packet, $buffer, "Handler rejected");
 				}
+			}catch(\Throwable $e){
+				$this->logger->critical("EXCEPTION in handle: " . $e->getMessage());
+				throw $e;
 			}finally{
 				$handlerTimings->stopTiming();
 			}
@@ -590,6 +610,8 @@ class NetworkSession{
 			throw new \InvalidArgumentException("Attempted to send " . get_class($packet) . " to " . $this->getDisplayName() . " too early");
 		}
 
+		$this->logger->debug("OUT: " . $packet->getName() . " (" . get_class($packet) . ")");
+
 		$timings = Timings::getSendDataPacketTimings($packet);
 		$timings->startTiming();
 		try{
@@ -609,7 +631,7 @@ class NetworkSession{
 			}
 			$writer = new ByteBufferWriter();
 			foreach($packets as $evPacket){
-				$writer->clear(); //memory reuse let's gooooo
+				$writer->clear();
 				$this->addToSendBuffer(self::encodePacketTimed($writer, $evPacket));
 			}
 			if($immediate){
@@ -1029,17 +1051,37 @@ class NetworkSession{
 	}
 
 	public function notifyTerrainReady() : void{
-		$this->logger->debug("Sending spawn notification, waiting for spawn response");
-		$this->sendDataPacket(PlayStatusPacket::create(PlayStatusPacket::PLAYER_SPAWN));
+		$this->logger->debug("Terrain ready, switching to in-game handler");
 		$this->setHandler(new SpawnResponsePacketHandler($this->onClientSpawnResponse(...)));
 	}
 
 	private function onClientSpawnResponse() : void{
 		$this->logger->debug("Received spawn response, entering in-game phase");
-		$this->player->setNoClientPredictions(false); //TODO: HACK: we set this during the spawn sequence to prevent the client sending junk movements
+		$this->player->setNoClientPredictions(false);
 		$this->player->doFirstSpawn();
 		$this->forceAsyncCompression = false;
 		$this->setHandler(new InGamePacketHandler($this->player, $this, $this->invManager));
+
+		// Send packets that the client expects after spawn (based on Dragonfly comparison)
+		$this->logger->debug("Sending post-spawn packets");
+		$gamemodeId = match($this->player->getGamemode()){
+			\pocketmine\player\GameMode::SURVIVAL => 0,
+			\pocketmine\player\GameMode::CREATIVE => 1,
+			\pocketmine\player\GameMode::ADVENTURE => 2,
+			\pocketmine\player\GameMode::SPECTATOR => 3,
+		};
+		$this->sendDataPacket(SetPlayerGameTypePacket::create($gamemodeId));
+		$this->sendDataPacket(TrimDataPacket::create([], []));
+		$this->sendDataPacket(PlayerSkinPacket::create(
+			$this->player->getUniqueId(),
+			"",
+			"",
+			$this->typeConverter->getSkinAdapter()->toSkinData($this->player->getSkin())
+		));
+
+		// Send real commands AFTER spawn completes (client crashes if sent during spawn on 1.26.40)
+		$this->logger->debug("Sending real commands post-spawn");
+		$this->syncAvailableCommands();
 	}
 
 	public function onServerDeath(Translatable|string $deathMessage) : void{

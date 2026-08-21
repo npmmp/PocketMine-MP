@@ -72,7 +72,7 @@ use pocketmine\network\mcpe\protocol\PlayerAuthInputPacket;
 use pocketmine\network\mcpe\protocol\PlayerHotbarPacket;
 use pocketmine\network\mcpe\protocol\PlayerSkinPacket;
 use pocketmine\network\mcpe\protocol\RequestChunkRadiusPacket;
-use pocketmine\network\mcpe\protocol\serializer\BitSet;
+use pocketmine\network\mcpe\protocol\types\InputFlags;
 use pocketmine\network\mcpe\protocol\SetActorMotionPacket;
 use pocketmine\network\mcpe\protocol\SetPlayerGameTypePacket;
 use pocketmine\network\mcpe\protocol\SpawnExperienceOrbPacket;
@@ -142,7 +142,7 @@ class InGamePacketHandler extends PacketHandler{
 	protected ?Vector3 $lastPlayerAuthInputPosition = null;
 	protected ?float $lastPlayerAuthInputYaw = null;
 	protected ?float $lastPlayerAuthInputPitch = null;
-	protected ?BitSet $lastPlayerAuthInputFlags = null;
+	protected ?InputFlags $lastPlayerAuthInputFlags = null;
 
 	protected ?BlockPosition $lastBlockAttacked = null;
 
@@ -164,7 +164,7 @@ class InGamePacketHandler extends PacketHandler{
 		return false;
 	}
 
-	private function resolveOnOffInputFlags(BitSet $inputFlags, int $startFlag, int $stopFlag) : ?bool{
+	private function resolveOnOffInputFlags(InputFlags $inputFlags, int $startFlag, int $stopFlag) : ?bool{
 		$enabled = $inputFlags->get($startFlag);
 		$disabled = $inputFlags->get($stopFlag);
 		if($enabled !== $disabled){

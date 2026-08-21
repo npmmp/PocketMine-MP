@@ -35,9 +35,9 @@
       "adhocore/json-comment": "~1.2.0",
       "netresearch/jsonmapper": "~v5.0.0",
       "pocketmine/bedrock-block-upgrade-schema": "~5.2.0+bedrock-1.21.110",
-      "pocketmine/bedrock-data": "~6.7.0+bedrock-1.26.30",
+      "pocketmine/bedrock-data": "~6.8.0+bedrock-1.26.40",
       "pocketmine/bedrock-item-upgrade-schema": "~1.17.0+bedrock-1.26.20",
-      "pocketmine/bedrock-protocol": "~58.0.0+bedrock-1.26.30",
+      "pocketmine/bedrock-protocol": "~59.0.0+bedrock-1.26.40",
       "pocketmine/binaryutils": "^0.2.1",
       "pocketmine/callback-validator": "~1.0.4",
       "pocketmine/color": "^0.3.0",
@@ -78,12 +78,42 @@
          "pocketmine\\phpstan\\rules\\": "tests/phpstan/rules"
       }
    },
-   "config": {
-      "platform": {
-         "php": "8.1.0"
-      },
-      "sort-packages": true
-   },
+    "config": {
+       "platform": {
+          "php": "8.1.0"
+       },
+       "sort-packages": true
+    },
+    "repositories": [
+       {
+          "type": "path",
+          "url": "../BedrockProtocol",
+          "options": {
+             "symlink": true
+          }
+       },
+       {
+          "type": "path",
+          "url": "../BedrockData",
+          "options": {
+             "symlink": true
+          }
+       },
+       {
+          "type": "path",
+          "url": "../BedrockBlockUpgradeSchema",
+          "options": {
+             "symlink": true
+          }
+       },
+       {
+          "type": "path",
+          "url": "../BedrockItemUpgradeSchema",
+          "options": {
+             "symlink": true
+          }
+       }
+    ],
    "scripts": {
       "make-devtools": "@php -dphar.readonly=0 tests/plugins/DevTools/src/ConsoleScript.php --make ./ --relative tests/plugins/DevTools --out plugins/DevTools.phar",
       "make-server": [

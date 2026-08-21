@@ -34,7 +34,6 @@ use pocketmine\network\mcpe\protocol\SetLocalPlayerAsInitializedPacket;
 #[SilentDiscard(InteractPacket::class, comment: "Player interacting with itself somehow")]
 #[SilentDiscard(MobEquipmentPacket::class, comment: "Player equipping its held item on spawn, not needed")]
 #[SilentDiscard(PlayerAuthInputPacket::class, comment: "Spammed after StartGame even though player has no controls")]
-#[SilentDiscard(ServerboundLoadingScreenPacket::class, comment: "Not used, arrives with SetLocalPlayerAsInitialized")]
 final class SpawnResponsePacketHandler extends PacketHandler{
 	/**
 	 * @phpstan-param \Closure() : void $responseCallback
@@ -42,7 +41,13 @@ final class SpawnResponsePacketHandler extends PacketHandler{
 	public function __construct(private \Closure $responseCallback){}
 
 	public function handleSetLocalPlayerAsInitialized(SetLocalPlayerAsInitializedPacket $packet) : bool{
+		\GlobalLogger::get()->debug(">>> SetLocalPlayerAsInitialized RECEIVED");
 		($this->responseCallback)();
+		return true;
+	}
+
+	public function handleServerboundLoadingScreen(ServerboundLoadingScreenPacket $packet) : bool{
+		\GlobalLogger::get()->debug(">>> ServerboundLoadingScreen RECEIVED, id=" . ($packet->loadingScreenID->hasValue() ? $packet->loadingScreenID->get() : "none") . " type=" . $packet->type);
 		return true;
 	}
 }

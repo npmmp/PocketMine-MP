@@ -83,7 +83,14 @@ final class CraftingDataCache{
 
 		$nullUUID = Uuid::fromString(Uuid::NIL);
 		$converter = TypeConverter::getInstance();
-		$recipesWithTypeIds = [];
+		$shapedRecipes = [];
+		$shapelessRecipes = [];
+		$multiRecipes = [];
+		$userDataShapelessRecipes = [];
+		$shapelessChemistryRecipes = [];
+		$shapedChemistryRecipes = [];
+		$smithingTransformRecipes = [];
+		$smithingTrimRecipes = [];
 
 		$noUnlockingRequirement = new RecipeUnlockingRequirement(null);
 		$recipeNetId = self::RECIPE_ID_OFFSET;
@@ -97,9 +104,8 @@ final class CraftingDataCache{
 					ShapelessRecipeType::CARTOGRAPHY => CraftingRecipeBlockName::CARTOGRAPHY_TABLE,
 					ShapelessRecipeType::SMITHING => CraftingRecipeBlockName::SMITHING_TABLE,
 				};
-				$recipesWithTypeIds[] = new ProtocolShapelessRecipe(
-					CraftingDataPacket::ENTRY_SHAPELESS,
-					BE::packUnsignedInt($recipeNetId), //TODO: this should probably be changed to something human-readable
+				$shapelessRecipes[] = new ProtocolShapelessRecipe(
+					0, BE::packUnsignedInt($recipeNetId),
 					array_map($converter->coreRecipeIngredientToNet(...), $recipe->getIngredientList()),
 					array_map($converter->coreItemStackToNet(...), $recipe->getResults()),
 					$nullUUID,
@@ -116,9 +122,8 @@ final class CraftingDataCache{
 						$inputs[$row][$column] = $converter->coreRecipeIngredientToNet($recipe->getIngredient($column, $row));
 					}
 				}
-				$recipesWithTypeIds[] = $r = new ProtocolShapedRecipe(
-					CraftingDataPacket::ENTRY_SHAPED,
-					BE::packUnsignedInt($recipeNetId), //TODO: this should probably be changed to something human-readable
+				$shapedRecipes[] = $r = new ProtocolShapedRecipe(
+					0, BE::packUnsignedInt($recipeNetId),
 					$inputs,
 					array_map($converter->coreItemStackToNet(...), $recipe->getResults()),
 					$nullUUID,
@@ -143,16 +148,15 @@ final class CraftingDataCache{
 			};
 			foreach($manager->getFurnaceRecipeManager($furnaceType)->getAll() as $recipe){
 				$recipeNetId++;
-				$recipesWithTypeIds[] = new ProtocolShapelessRecipe(
-					CraftingDataPacket::ENTRY_SHAPELESS,
-					BE::packUnsignedInt($recipeNetId), //TODO: this should probably be changed to something human-readable
+				$shapelessRecipes[] = new ProtocolShapelessRecipe(
+					0, BE::packUnsignedInt($recipeNetId),
 					[$converter->coreRecipeIngredientToNet($recipe->getInput())],
 					[$converter->coreItemStackToNet($recipe->getResult())],
 					$nullUUID,
 					$typeTag,
 					50,
 					$noUnlockingRequirement,
-					$recipeNetId //not used, but we need to fill them with something unique regardless
+					$recipeNetId
 				);
 			}
 		}
@@ -192,6 +196,6 @@ final class CraftingDataCache{
 		}
 
 		Timings::$craftingDataCacheRebuild->stopTiming();
-		return CraftingDataPacket::create($recipesWithTypeIds, $potionTypeRecipes, $potionContainerChangeRecipes, [], true);
+		return CraftingDataPacket::create($shapedRecipes, $shapelessRecipes, $multiRecipes, $userDataShapelessRecipes, $shapelessChemistryRecipes, $shapedChemistryRecipes, $smithingTransformRecipes, $smithingTrimRecipes, $potionTypeRecipes, $potionContainerChangeRecipes, [], true);
 	}
 }

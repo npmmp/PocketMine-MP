@@ -147,19 +147,20 @@ class TypeConverter{
 			return new ProtocolRecipeIngredient(null, 0);
 		}
 		if($ingredient instanceof MetaWildcardRecipeIngredient){
-			$id = $this->itemTypeDictionary->fromStringId($ingredient->getItemId());
+			$stringId = $ingredient->getItemId();
 			$meta = self::RECIPE_INPUT_WILDCARD_META;
-			$descriptor = new IntIdMetaItemDescriptor($id, $meta);
+			$descriptor = new IntIdMetaItemDescriptor($stringId, $meta);
 		}elseif($ingredient instanceof ExactRecipeIngredient){
 			$item = $ingredient->getItem();
-			[$id, $meta, $blockRuntimeId] = $this->itemTranslator->toNetworkId($item);
+			[$numericId, $meta, $blockRuntimeId] = $this->itemTranslator->toNetworkId($item);
+			$stringId = $this->itemTypeDictionary->fromIntId($numericId);
 			if($blockRuntimeId !== null){
 				$meta = $this->blockTranslator->getBlockStateDictionary()->getMetaFromStateId($blockRuntimeId);
 				if($meta === null){
 					throw new AssumptionFailedError("Every block state should have an associated meta value");
 				}
 			}
-			$descriptor = new IntIdMetaItemDescriptor($id, $meta);
+			$descriptor = new IntIdMetaItemDescriptor($stringId, $meta);
 		}elseif($ingredient instanceof TagWildcardRecipeIngredient){
 			$descriptor = new TagItemDescriptor($ingredient->getTagName());
 		}else{
@@ -180,7 +181,7 @@ class TypeConverter{
 		}
 
 		if($descriptor instanceof IntIdMetaItemDescriptor){
-			$stringId = $this->itemTypeDictionary->fromIntId($descriptor->getId());
+			$stringId = $descriptor->getName();
 			$meta = $descriptor->getMeta();
 		}elseif($descriptor instanceof StringIdMetaItemDescriptor){
 			$stringId = $descriptor->getId();

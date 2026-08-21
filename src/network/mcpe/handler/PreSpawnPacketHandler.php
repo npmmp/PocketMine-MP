@@ -28,21 +28,28 @@ use pocketmine\network\mcpe\cache\CraftingDataCache;
 use pocketmine\network\mcpe\cache\StaticPacketCache;
 use pocketmine\network\mcpe\InventoryManager;
 use pocketmine\network\mcpe\NetworkSession;
+use pocketmine\network\mcpe\protocol\ChangeDimensionPacket;
+use pocketmine\network\mcpe\protocol\ChunkRadiusUpdatedPacket;
 use pocketmine\network\mcpe\protocol\ItemRegistryPacket;
+use pocketmine\network\mcpe\protocol\JigsawStructureDataPacket;
+use pocketmine\network\mcpe\protocol\PlayStatusPacket;
 use pocketmine\network\mcpe\protocol\PlayerAuthInputPacket;
+use pocketmine\network\mcpe\protocol\ProtocolInfo;
+use pocketmine\network\mcpe\protocol\serializer\AvailableCommandsPacketAssembler;
 use pocketmine\network\mcpe\protocol\RequestChunkRadiusPacket;
 use pocketmine\network\mcpe\protocol\ServerboundLoadingScreenPacket;
 use pocketmine\network\mcpe\protocol\StartGamePacket;
+use pocketmine\network\mcpe\protocol\VoxelShapesPacket;
 use pocketmine\network\mcpe\protocol\types\BlockPosition;
 use pocketmine\network\mcpe\protocol\types\BoolGameRule;
-use pocketmine\network\mcpe\protocol\types\CacheableNbt;
-use pocketmine\network\mcpe\protocol\types\DimensionIds;
 use pocketmine\network\mcpe\protocol\types\Experiments;
 use pocketmine\network\mcpe\protocol\types\LevelSettings;
 use pocketmine\network\mcpe\protocol\types\NetworkPermissions;
 use pocketmine\network\mcpe\protocol\types\PlayerMovementSettings;
-use pocketmine\network\mcpe\protocol\types\ServerTelemetryData;
 use pocketmine\network\mcpe\protocol\types\SpawnSettings;
+use pocketmine\network\mcpe\protocol\types\CacheableNbt;
+use pocketmine\network\mcpe\protocol\types\DimensionIds;
+use pocketmine\network\mcpe\protocol\types\ServerTelemetryData;
 use pocketmine\player\Player;
 use pocketmine\Server;
 use pocketmine\timings\Timings;
@@ -70,6 +77,12 @@ class PreSpawnPacketHandler extends PacketHandler{
 			$world = $location->getWorld();
 
 			$typeConverter = $this->session->getTypeConverter();
+
+			$this->session->getLogger()->debug("Sending JigsawStructureData (empty)");
+			$this->session->sendDataPacket(JigsawStructureDataPacket::create(new CacheableNbt(CompoundTag::create())));
+
+			$this->session->getLogger()->debug("Sending VoxelShapes (empty)");
+			$this->session->sendDataPacket(VoxelShapesPacket::create([], [], 0));
 
 			$this->session->getLogger()->debug("Preparing StartGamePacket");
 			$levelSettings = new LevelSettings();
@@ -108,20 +121,20 @@ class PreSpawnPacketHandler extends PacketHandler{
 				0,
 				"",
 				true,
-				sprintf("%s %s", VersionInfo::NAME, VersionInfo::VERSION()->getFullVersion(true)),
+				ProtocolInfo::MINECRAFT_VERSION_NETWORK,
 				Uuid::fromString(Uuid::NIL),
 				false,
 				false,
 				new NetworkPermissions(disableClientSounds: true),
-				true,
 				null,
 				new ServerTelemetryData("", "", "", ""),
-				[],
-				0,
+				[], //blockPalette - must be empty; client uses its own built-in palette
+				0, //blockPaletteChecksum
 			));
 
 			$this->session->getLogger()->debug("Sending items");
 			$this->session->sendDataPacket(ItemRegistryPacket::create($typeConverter->getItemTypeDictionary()->getEntries()));
+			$this->session->getLogger()->debug("Sent - waiting for disconnect or success");
 
 			$this->session->getLogger()->debug("Sending actor identifiers");
 			$this->session->sendDataPacket(StaticPacketCache::getInstance()->getAvailableActorIdentifiers());
@@ -132,8 +145,9 @@ class PreSpawnPacketHandler extends PacketHandler{
 			$this->session->getLogger()->debug("Sending attributes");
 			$this->session->getEntityEventBroadcaster()->syncAttributes([$this->session], $this->player, $this->player->getAttributeMap()->getAll());
 
-			$this->session->getLogger()->debug("Sending available commands");
-			$this->session->syncAvailableCommands();
+			// EMPTY AvailableCommandsPacket (real one crashes client on 1.26.40)
+			$this->session->getLogger()->debug("Sending empty commands");
+			$this->session->sendDataPacket(AvailableCommandsPacketAssembler::assemble([], [], []));
 
 			$this->session->getLogger()->debug("Sending abilities");
 			$this->session->syncAbilities($this->player);
@@ -151,14 +165,12 @@ class PreSpawnPacketHandler extends PacketHandler{
 			$this->inventoryManager->syncAll();
 			$this->inventoryManager->syncSelectedHotbarSlot();
 
-			$this->session->getLogger()->debug("Sending creative inventory data");
-			$this->inventoryManager->syncCreative();
-
 			$this->session->getLogger()->debug("Sending crafting data");
 			$this->session->sendDataPacket(CraftingDataCache::getInstance()->getCache($this->server->getCraftingManager()));
 
 			$this->session->getLogger()->debug("Sending player list");
 			$this->session->syncPlayerList($this->server->getOnlinePlayers());
+			$this->session->getLogger()->debug("ALL SPAWN PACKETS SENT");
 		}finally{
 			Timings::$playerNetworkSendPreSpawnGameData->stopTiming();
 		}
@@ -167,6 +179,27 @@ class PreSpawnPacketHandler extends PacketHandler{
 	public function handleRequestChunkRadius(RequestChunkRadiusPacket $packet) : bool{
 		$this->player->setViewDistance($packet->radius);
 
+		$this->session->getLogger()->debug("Sending ChangeDimension with LoadingScreen");
+		$loadingScreenId = mt_rand(1, 1000000);
+		$this->session->sendDataPacket(ChangeDimensionPacket::create(
+			0, // Overworld
+			$this->player->getPosition(),
+			false,
+			$loadingScreenId
+		));
+
+		$this->session->getLogger()->debug("Sending PLAYER_SPAWN");
+		$this->session->sendDataPacket(PlayStatusPacket::create(PlayStatusPacket::PLAYER_SPAWN));
+
+		$this->session->getLogger()->debug("Sending creative inventory data (after PLAYER_SPAWN)");
+		$this->inventoryManager->syncCreative();
+
+		$this->session->getLogger()->debug("Triggering chunk loading for spawn area");
+		$this->player->doChunkRequests();
+
+		$this->session->notifyTerrainReady();
+
 		return true;
 	}
+
 }
